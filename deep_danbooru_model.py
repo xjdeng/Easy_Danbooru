@@ -706,7 +706,7 @@ class DeepDanbooruModel(nn.Module):
         
         return {k:p for k,p in zip(self.tags, y) if p >= thresh}
     
-    def label_images(self, picpath, *args, **kwargs):
+    def label(self, picpath, *args, **kwargs):
         labels = self.run(picpath)
         to_remove = []
         for k in labels:
