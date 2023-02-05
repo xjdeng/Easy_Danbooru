@@ -700,9 +700,9 @@ class DeepDanbooruModel(nn.Module):
         
         if torch.cuda.is_available():
             x = x.to("cuda", dtype=torch.half)
+        with torch.no_grad():
+            y = self(x)[0].detach().cpu().numpy()    
         
         return {k:p for k,p in zip(self.tags, y) if p >= thresh}
 
 # first run
-with torch.no_grad():
-    y = model(x)[0].detach().cpu().numpy()    
