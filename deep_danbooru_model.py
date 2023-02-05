@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
+import numpy as np
+from PIL import Image
 
 
 class DeepDanbooruModel(nn.Module):
@@ -671,4 +674,35 @@ class DeepDanbooruModel(nn.Module):
         self.tags = state_dict.get('tags', [])
 
         super(DeepDanbooruModel, self).load_state_dict({k: v for k, v in state_dict.items() if k != 'tags'})
+        
+    def initialize(self, model_url = "https://github.com/AUTOMATIC1111/TorchDeepDanbooru/releases/download/v1/model-resnet_custom_v3.pt"):
+        cached_model = torch.hub.get_dir() + '/checkpoints/' + model_url.split('/')[-1]
+        if os.path.exists(cached_model):
+            print(f"Model found in cache: {cached_model}")
+            mod = torch.load(cached_model)
+        else:
+            print("Model not found in cache, downloading...")
+            mod = torch.hub.load_state_dict_from_url(model_url)
+        self.load_state_dict(mod)
+        
+        self.eval()
+        
+        if torch.cuda.is_available():
+            self.cuda()
+            self.half()        
+    
+    def run(self, pic, dims = (512, 512), thresh = 0.5):
+        if isinstance(pic, str):
+            pic = Image.open("test.jpg").convert("RGB").resize(dims)
+        a = np.expand_dims(np.array(pic, dtype=np.float32), 0) / 255
+        
+        x = torch.from_numpy(a)
+        
+        if torch.cuda.is_available():
+            x = x.to("cuda", dtype=torch.half)
+        
+        return {k:p for k,p in zip(self.tags, y) if p >= thresh}
 
+# first run
+with torch.no_grad():
+    y = model(x)[0].detach().cpu().numpy()    
