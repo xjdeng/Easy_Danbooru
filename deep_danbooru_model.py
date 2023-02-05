@@ -715,7 +715,7 @@ class DeepDanbooruModel(nn.Module):
         for k in to_remove:
             del labels[k]
         label_str = ", ".join(list(sorted(labels, key=labels.get, reverse=True)))
-        extlen = len(picpath.ext)
+        extlen = len(path(picpath.ext))
         txtpath = path(path(picpath).abspath()[0:extlen] + ".txt")
         with open(txtpath,'w') as f:
             f.write(label_str)
