@@ -8,6 +8,8 @@ from path import Path as path
 import cv2
 import uuid
 import hashlib
+import warnings
+import random
 
 
 class DeepDanbooruModel(nn.Module):
@@ -696,8 +698,13 @@ class DeepDanbooruModel(nn.Module):
             self.half()        
     
     def get_labels(self, pic, dims = (512, 512), thresh = 0.5):
+        #print(pic)
         if isinstance(pic, str):
-            pic = Image.open("test.jpg").convert("RGB").resize(dims)
+            try:
+                pic = Image.open(pic).convert("RGB").resize(dims)
+            except OSError:
+                warnings.warn("Skipping file {}".format(pic))
+                return None
         a = np.expand_dims(np.array(pic, dtype=np.float32), 0) / 255
         
         x = torch.from_numpy(a)
@@ -711,6 +718,8 @@ class DeepDanbooruModel(nn.Module):
     
     def label(self, picpath, *args, **kwargs):
         labels = self.get_labels(picpath)
+        if not labels:
+            return
         to_remove = []
         for k in labels:
             if k.startswith("rating:"):
@@ -730,7 +739,8 @@ class DeepDanbooruModel(nn.Module):
                 srcdir2 += list(path(d).walkfiles())
             srcdir = srcdir2
         else:
-            srcdir = path(srcdir).walkfiles()
+            srcdir = list(path(srcdir).walkfiles())
+        random.shuffle(srcdir)
         filehashes = set()
         for f in srcdir:
             path(destdir).mkdir_p()
@@ -759,4 +769,8 @@ class DeepDanbooruModel(nn.Module):
                 filehashes.add(thehash)
         for f in path(destdir).files():
             self.label(f)
-            
+
+def run(srcdir, destdir = "./512"):
+    model = DeepDanbooruModel()
+    model.initialize()
+    model.run(srcdir, destdir)
