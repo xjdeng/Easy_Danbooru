@@ -5,6 +5,9 @@ import os
 import numpy as np
 from PIL import Image
 from path import Path as path
+import cv2
+import uuid
+import hashlib
 
 
 class DeepDanbooruModel(nn.Module):
@@ -692,7 +695,7 @@ class DeepDanbooruModel(nn.Module):
             self.cuda()
             self.half()        
     
-    def run(self, pic, dims = (512, 512), thresh = 0.5):
+    def get_labels(self, pic, dims = (512, 512), thresh = 0.5):
         if isinstance(pic, str):
             pic = Image.open("test.jpg").convert("RGB").resize(dims)
         a = np.expand_dims(np.array(pic, dtype=np.float32), 0) / 255
@@ -707,7 +710,7 @@ class DeepDanbooruModel(nn.Module):
         return {k:p for k,p in zip(self.tags, y) if p >= thresh}
     
     def label(self, picpath, *args, **kwargs):
-        labels = self.run(picpath)
+        labels = self.get_labels(picpath)
         to_remove = []
         for k in labels:
             if k.startswith("rating:"):
@@ -717,6 +720,43 @@ class DeepDanbooruModel(nn.Module):
         label_str = ", ".join(list(sorted(labels, key=labels.get, reverse=True)))
         extlen = len(path(picpath).ext)
         txtpath = str(path(picpath).abspath()[0:-extlen]) + ".txt"
-        print(txtpath)
         with open(txtpath,'w') as f:
             f.write(label_str)
+
+    def run(self, srcdir, destdir = "./512"):
+        if isinstance(srcdir, list):
+            srcdir2 = []
+            for d in srcdir:
+                srcdir2 += list(path(d).walkfiles())
+            srcdir = srcdir2
+        else:
+            srcdir = path(srcdir).walkfiles()
+        filehashes = set()
+        for f in srcdir:
+            path(destdir).mkdir_p()
+            img = cv2.imread(f)
+            try:
+                h,w = img.shape[0:2]
+            except Exception as e:
+                print(f, e)
+                continue
+            newimg = 255*np.ones((512, 512, 3))
+            new_w = int(round(w*512/h))
+            if new_w > 512:
+                new_h = int(round(h*512/w))
+                img2 = cv2.resize(img, (512, new_h))
+                offset = int(round((512 - new_h)/2))
+                newimg[offset:offset+new_h,:,:] = img2
+            else:
+                img2 = cv2.resize(img, (new_w, 512))
+                offset = int(round((512 - new_w)/2))
+                newimg[:,offset:offset+new_w,:] = img2
+            hasher = hashlib.sha1()
+            hasher.update(newimg.tobytes())
+            thehash = hasher.hexdigest()
+            if thehash not in filehashes:
+                cv2.imwrite("{}/{}.jpg".format(destdir, uuid.uuid4()), newimg)
+                filehashes.add(thehash)
+        for f in path(destdir).files():
+            self.label(f)
+            
