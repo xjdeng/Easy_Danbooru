@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import os
 import numpy as np
 from PIL import Image
+from path import Path as path
 
 
 class DeepDanbooruModel(nn.Module):
@@ -704,5 +705,17 @@ class DeepDanbooruModel(nn.Module):
             y = self(x)[0].detach().cpu().numpy()    
         
         return {k:p for k,p in zip(self.tags, y) if p >= thresh}
-
-# first run
+    
+    def label_images(self, picpath, *args, **kwargs):
+        labels = self.run(picpath)
+        to_remove = []
+        for k in labels:
+            if k.startswith("rating:"):
+                to_remove.append(k)
+        for k in to_remove:
+            del labels[k]
+        label_str = ", ".join(list(sorted(labels, key=labels.get, reverse=True)))
+        extlen = len(picpath.ext)
+        txtpath = path(path(picpath).abspath()[0:extlen] + ".txt")
+        with open(txtpath,'w') as f:
+            f.write(label_str)
