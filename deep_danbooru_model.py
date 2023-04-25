@@ -10,6 +10,16 @@ import uuid
 import hashlib
 import warnings
 import random
+from transformers import CLIPProcessor
+
+# Load the CLIP processor
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+
+def get_num_tokens(prompt):
+    inputs = processor(prompt, return_tensors="pt", padding=True, truncation=True)
+    num_tokens = inputs["input_ids"].shape[-1]
+    return num_tokens - 2
+
 
 
 class DeepDanbooruModel(nn.Module):
@@ -695,10 +705,30 @@ class DeepDanbooruModel(nn.Module):
         
         if torch.cuda.is_available():
             self.cuda()
-            self.half()        
+            self.half()
+        self.thresh = 0.7
     
-    def get_labels(self, pic, dims = (512, 512), thresh = 0.5):
+    def get_raw(self, pic, dims = (512, 512)):
+        if isinstance(pic, str):
+            try:
+                pic = Image.open(pic).convert("RGB").resize(dims)
+            except OSError:
+                #warnings.warn("Skipping file {}".format(pic))
+                return None
+        a = np.expand_dims(np.array(pic, dtype=np.float32), 0) / 255
+        
+        x = torch.from_numpy(a)
+        
+        if torch.cuda.is_available():
+            x = x.to("cuda", dtype=torch.half)
+        with torch.no_grad():
+            y = self(x)[0].detach().cpu().numpy()
+        return y
+    
+    def get_labels(self, pic, dims = (512, 512), thresh = None): #TODO: refactor
         #print(pic)
+        if not thresh:
+            thresh = self.thresh
         if isinstance(pic, str):
             try:
                 pic = Image.open(pic).convert("RGB").resize(dims)
@@ -716,7 +746,7 @@ class DeepDanbooruModel(nn.Module):
         
         return {k:p for k,p in zip(self.tags, y) if p >= thresh}
     
-    def label(self, picpath, *args, **kwargs):
+    def label(self, picpath, add_label = None, *args, **kwargs):
         labels = self.get_labels(picpath)
         if not labels:
             return
@@ -727,16 +757,45 @@ class DeepDanbooruModel(nn.Module):
         for k in to_remove:
             del labels[k]
         label_str = ", ".join(list(sorted(labels, key=labels.get, reverse=True)))
+        if add_label:
+            #label_str += ", {}".format(add_label)
+            label_str = "{}, {}".format(add_label, label_str)
+        tagset = set()
+        tags = label_str.split(", ")
+        result = ""
+        for tag in tags:
+            if tag in tagset:
+                continue
+            if tag.startswith("rating:"):
+                continue
+            if len(result) > 0:
+                test = result + ", {}".format(tag)
+            else:
+                test = tag
+            if get_num_tokens(test) > 75:
+                break
+            result = test
+        label_str = result
         extlen = len(path(picpath).ext)
         txtpath = str(path(picpath).abspath()[0:-extlen]) + ".txt"
         with open(txtpath,'w') as f:
             f.write(label_str)
+    
+    def load_image(self, im_path):
+        return cv2.imdecode(np.fromfile(im_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
 
-    def run(self, srcdir, destdir = "./512"):
+    def run(self, srcdir, destdir = "./512", add_label = None):
         if isinstance(srcdir, list):
             srcdir2 = []
             for d in srcdir:
-                srcdir2 += list(path(d).walkfiles())
+                try:
+                    dpath = path(d)
+                    if dpath.isfile():
+                        srcdir2.append(dpath)
+                    else:
+                        srcdir2 += list(dpath.walkfiles())
+                except FileNotFoundError:
+                    pass
             srcdir = srcdir2
         else:
             srcdir = list(path(srcdir).walkfiles())
@@ -744,7 +803,7 @@ class DeepDanbooruModel(nn.Module):
         filehashes = set()
         for f in srcdir:
             path(destdir).mkdir_p()
-            img = cv2.imread(f)
+            img = self.load_image(f)
             try:
                 h,w = img.shape[0:2]
             except Exception as e:
@@ -768,9 +827,9 @@ class DeepDanbooruModel(nn.Module):
                 cv2.imwrite("{}/{}.jpg".format(destdir, uuid.uuid4()), newimg)
                 filehashes.add(thehash)
         for f in path(destdir).files():
-            self.label(f)
+            self.label(f, add_label)
 
-def run(srcdir, destdir = "./512"):
+def run(srcdir, destdir = "./512", add_label = None):
     model = DeepDanbooruModel()
     model.initialize()
-    model.run(srcdir, destdir)
+    model.run(srcdir, destdir, add_label)
