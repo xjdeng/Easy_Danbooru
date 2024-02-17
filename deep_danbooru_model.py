@@ -10,6 +10,7 @@ import uuid
 import hashlib
 import warnings
 import random
+from tempfile import TemporaryDirectory
 from transformers import CLIPProcessor
 
 # Load the CLIP processor
@@ -811,6 +812,8 @@ class DeepDanbooruModel(nn.Module):
                 continue
             newimg = 255*np.ones((512, 512, 3))
             new_w = int(round(w*512/h))
+            if img.shape[2] == 4:
+                img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
             if new_w > 512:
                 new_h = int(round(h*512/w))
                 img2 = cv2.resize(img, (512, new_h))
@@ -833,3 +836,12 @@ def run(srcdir, destdir = "./512", add_label = None):
     model = DeepDanbooruModel()
     model.initialize()
     model.run(srcdir, destdir, add_label)
+    
+def rundir(srcdir, destdir = "./512"):
+    path(destdir).mkdir_p()
+    for d in path(srcdir).dirs():
+        tmpdir = TemporaryDirectory()
+        run(d, tmpdir.name, str(d.name))
+        for f in path(tmpdir.name).files():
+            f.move(destdir)
+        tmpdir.cleanup()
